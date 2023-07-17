@@ -10,42 +10,16 @@ _start:
         ; Save the variables given on boot.
         mov     [boot_drive], dl ; The drive that was booted from.
 
-        ; Clear the screen.
-        mov     ah, 0x06 ; Scroll down service.
-        mov     al, 0x00 ; Set to scroll down entire screen.
-        mov     bh, ' ' ; Set fill character.
-        mov     ch, 0x00 ; Set the start coordinates.
-        mov     cl, 0x00 
-        mov     dh, 0x19 ; Set the end coordinates
-        mov     dl, 0x50
-        int     0x10
-
-        ; Hide the cursor.
-        mov     bh, 0x00
-        mov     dh, 0x00
-        mov     dl, 0x00
-        call    set_cursor_position
-
-        ; Print `hello_message`.
-        mov     si, hello_message
-        call    println
-
         ; Read the next sector following the boot sector into memory.
-        mov     al, 0x01   ; Sectors,
-        mov     ch, 0x00   ; cylinder,
-        mov     cl, 0x02   ; start sector,
-        mov     dh, 0x00   ; head,
+        mov     al, 0x01         ; Sectors,
+        mov     ch, 0x00         ; cylinder,
+        mov     cl, 0x02         ; start sector,
+        mov     dh, 0x00         ; head,
         mov     dl, [boot_drive] ; disk,
-        mov     bx, 0x00   ; output register, and
+        mov     bx, 0x00         ; output register, and
         mov     es, bx
-        mov     bx, 0x7e00 ; output offset.
+        mov     bx, 0x7E00       ; output offset.
         call    read_disk
-
-        ; Print out "DADAFACE" from reading the disk.
-        mov     ax, [0x7e00]
-        call    println_hexadecimal
-        mov     ax, [0x7e00 + 0x02]
-        call    println_hexadecimal
 
 _end: 
         jmp     $
@@ -88,11 +62,11 @@ read_disk:
 
 ; Prints a string.
 ; Paramters:
-;       si: the string to print.
+;       si: string to print
 GLOBAL print
 print: 
         pusha
-        mov     ah, 0x0e  ; Specify tty output function.
+        mov     ah, 0x0E  ; Specify tty output function.
 .put: 
         lodsb             ; Load a byte and increment the string ptr.
         test    al, al    ; Check if the loaded byte is null;
@@ -135,7 +109,7 @@ print_hexadecimal:
         ; We first get hexadecimal digit as an ascii character by using an
         ; array of ascii hexadecimal digits as a map.
         mov     bx, ax          ; Save the state of ax.
-        and     bx, 0x0f        ; Get the lower 4 bits as the offset to the
+        and     bx, 0x0F        ; Get the lower 4 bits as the offset to the
                                 ; corresponding ascii character.
         lea     si, [digit_map] ; Load the ascii digits.
         add     si, bx          ; Get the address of the ascii digit using the
@@ -187,8 +161,7 @@ print_hexadecimal:
         ; multiply the counter by 2 to remove a each byte because a word is 2
         ; bytes.
         shl     cx, 0x01 ; Multiply the string by 2.
-        add     sp, cx   ; Pop the string.
-        popa
+        add     sp, cx   ; Pop the string. popa
         ret
 
 ; Prints a hexadecimal in a new line.
@@ -203,28 +176,55 @@ println_hexadecimal:
         pop     si
         ret
 
-; Moves the cursor to the specified position.
-; Parameters:
-;     bh: display page number
-;     dh: row
-;     dl: column
-GLOBAL set_cursor_position
-set_cursor_position:
-        push    ax
-        mov     ah, 0x02
-        int     0x10
-        pop     ax
-        ret
-
-new_line:           db   0x0a, 0x0d, 0x00
+new_line:           db   0x0A, 0x0D, 0x00
 boot_drive:         db   0x00
-hello_message:      db   'Hello!', 0
-disk_error_message: db   'Disk error!', 0
+hello_message:      db   'Hello!', 0x00
+disk_error_message: db   'Disk error!', 0x00
 digit_map:          db   '0123456789ABCDEF'
 
-db 0x01fe - ($ - $$) dup 0
-dw 0xaa55
+gdt_start:
+        dd 0x00
+        dd 0x00
+gdt_code:
+        dw 0xffff
+        dw 0x00
+        db 0x00
+        db 0b10011010
+        db 0b11001111
+        db 0x00
+gdt_data:
+        dw 0xffff
+        dw 0x00
+        db 0x00
+        db 0b10010010
+        db 0b11001111
+        db 0x00
+gdt_descriptor:
+        dw gdt_end - gdt_descriptor - 1
+        dd gdt_start
+        
+db 0x01FE - ($ - $$) dup 0
+dw 0xAA55
 
 SECTION .text
-dw 0xdada
-dw 0xface
+BITS 16
+;
+; ; Prints a string to the VGA buffer.
+; ; Parameters:
+; ;       esi: string string to print
+; GLOBAL vgaprint
+; vgaprint:
+;         pusha
+;         mov     ebx, 0x0b8000
+; .put:
+;         lodsb
+;         test    al, al
+;         jz      .done
+;         mov     ah, 0x0f
+;         mov     [ebx], ax
+;         add     ebx, 0x02
+;         jmp     .put
+; .done:
+;         popa
+;         ret
+
