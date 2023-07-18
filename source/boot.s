@@ -1,4 +1,4 @@
-SECTION .boot_sector
+SECTION .boot
 BITS 16
 
 GLOBAL _start
@@ -7,8 +7,11 @@ _start:
         mov     bp, $$
         mov     sp, bp
 
-        ; Save the variables given on boot.
+        ; Save the variables given when booted.
         mov     [boot_drive], dl ; The drive that was booted from.
+
+        mov     si, booting_msg
+        call    print
 
         ; Read the next sector following the boot sector into memory.
         mov     al, 0x01         ; Sectors,
@@ -21,7 +24,25 @@ _start:
         mov     bx, 0x7E00       ; output offset.
         call    read_disk
 
+        mov     si, starting_bit32pm_msg
+        call    print
+
+        ; Since 32-bit protected mode code is going to start executing, we need
+        ; to tell the CPU to ignore interrupts because 32-bit PM iterrupts are
+        ; handled differently.
+        cli
+
+        ; Load the GDT and enable 32-bit protected mode.
+        lgdt    [gdtr]
+        mov     eax, cr0  ; (The cr0 register can't be accessed directly).
+        or      eax, 0x01
+        mov     cr0, eax
+
+        ; Long jump to 32-bit code to flush the CPU pipeline.
+        jmp     CODESEG:start_protected_mode
+
 _end: 
+        cli
         jmp     $
 
 ; Reads from the disk.
@@ -56,7 +77,7 @@ read_disk:
         popa
         ret
 .error:
-        mov     si, disk_error_message
+        mov     si, disk_error_msg
         call    print
         jmp     _end
 
@@ -73,21 +94,13 @@ print:
         jz      .end ; if so, stop printing.
         int     0x10      ; Tell the bios to print the byte.
         jmp     .put ; Repeat.
-.end: 
+.end:
+        mov     al, 0xa
+        int     0x10
+        mov     al, 0xd
+        int     0x10
         popa
         ret
-
-; Prints a string on a new line.
-; Paramters:
-;     si: the string to print.
-println: 
-        push    si
-        call    print
-        mov     si, new_line
-        call    print
-        pop     si
-        ret
-
 
 ; Prints a hexadecimal.
 ; Parameters:
@@ -164,67 +177,86 @@ print_hexadecimal:
         add     sp, cx   ; Pop the string. popa
         ret
 
-; Prints a hexadecimal in a new line.
-; Parameters:
-;     ax: number to print
-GLOBAL println_hexadecimal
-println_hexadecimal: 
-        call    print_hexadecimal
-        push    si
-        mov     si, new_line
-        call    print
-        pop     si
-        ret
+boot_drive          : db 0x00
+digit_map           : db '0123456789ABCDEF'
+booting_msg         : db 'Booting...', 0x00
+disk_error_msg      : db 'Disk error!', 0x00
+starting_bit32pm_msg: db 'Starting 32-bit protected mode...', 0x00
 
-new_line:           db   0x0A, 0x0D, 0x00
-boot_drive:         db   0x00
-hello_message:      db   'Hello!', 0x00
-disk_error_message: db   'Disk error!', 0x00
-digit_map:          db   '0123456789ABCDEF'
+gdtr:
+        dw gdt_end - gdt_start - 1 ; size
+        dd gdt_start               ; offset
+
+db 0x01FE - ($ - $$) dup 0
+dw 0xAA55
+
+SECTION .gdt
+BITS 16
 
 gdt_start:
         dd 0x00
         dd 0x00
-gdt_code:
-        dw 0xffff
-        dw 0x00
-        db 0x00
-        db 0b10011010
-        db 0b11001111
-        db 0x00
-gdt_data:
-        dw 0xffff
-        dw 0x00
-        db 0x00
-        db 0b10010010
-        db 0b11001111
-        db 0x00
-gdt_descriptor:
-        dw gdt_end - gdt_descriptor - 1
-        dd gdt_start
-        
-db 0x01FE - ($ - $$) dup 0
-dw 0xAA55
+gdt_codeseg:
+        dw 0xffff     ; limit
+        dw 0x00       ; base
+        db 0x00       ; base
+        db 0b10011010 ; access flags
+        db 0b11001111 ; flags; limit
+        db 0x00       ; base
+gdt_dataseg:
+        dw 0xffff     ; limit
+        dw 0x00       ; base
+        db 0x00       ; base
+        db 0b10010010 ; access flags
+        db 0b11001111 ; flags; limit
+        db 0x00       ; base
+gdt_end:
+
+CODESEG equ gdt_codeseg - gdt_start
+DATASEG equ gdt_dataseg - gdt_start
 
 SECTION .text
-BITS 16
-;
-; ; Prints a string to the VGA buffer.
-; ; Parameters:
-; ;       esi: string string to print
-; GLOBAL vgaprint
-; vgaprint:
-;         pusha
-;         mov     ebx, 0x0b8000
-; .put:
-;         lodsb
-;         test    al, al
-;         jz      .done
-;         mov     ah, 0x0f
-;         mov     [ebx], ax
-;         add     ebx, 0x02
-;         jmp     .put
-; .done:
-;         popa
-;         ret
+BITS 32
 
+start_protected_mode:
+        ; Note that the code segment is automatically set due to performing a
+        ; long jump to the `start_protected_mode` label.
+        ;
+        ; Now that we're in protected mode, our old 16-bit segments are
+        ; meaningless.
+        ; Therefore, we reset them to the data segment defined in the GDT.
+        mov     ax, DATASEG
+        mov     ds, ax
+        mov     ss, ax
+        mov     es, ax
+        mov     fs, ax
+        mov     gs, ax
+
+        ; Setup the Stack.
+        mov     ebp, 0x09fc00 ; This address is the top of the free space
+                              ; right above the boot sector.
+        mov     esp, ebp
+
+        mov     esi, bit32pm_msg
+        call    vgaprint
+        jmp     $
+
+; Prints a string to the VGA textmode buffer.
+; Parameters:
+;       esi: string
+vgaprint:
+        pusha
+        mov     ebx, 0x0b8000
+        mov     ah, 0x0f
+.put:
+        lodsb
+        test    al, al
+        jz      .end
+        mov     [ebx], ax
+        add     ebx, 2
+        jmp     .put
+.end:
+        popa
+        ret
+
+bit32pm_msg: db "Landed in 32-bit protected mode.", 0x00

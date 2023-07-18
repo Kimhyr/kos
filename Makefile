@@ -3,6 +3,7 @@ BUILD := build
 OBJECTS := boot.o
 OBJECTS := $(addprefix $(BUILD)/,$(OBJECTS))
 CLEAN := boot.bin $(OBJECTS)
+LSCRIPT := $(SOURCE)/script.ld
 
 CC := clang++
 AS := nasm
@@ -10,7 +11,7 @@ LD := ld
 EM := qemu-system-x86_64
 
 LFLAGS := \
-	-T $(SOURCE)/script.ld \
+	-T $(LSCRIPT) \
 	-m elf_x86_64
 CFLAGS := \
 	-Wall \
