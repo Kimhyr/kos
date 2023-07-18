@@ -35,7 +35,7 @@ $(BUILD):
 
 .PHONY: em
 em: $(BUILD)/boot.bin
-	$(EM) $(EFLAGS) $^
+	$(EM) -drive file=$^,format=raw,index=0,media=disk
 
 clean:
 	rm -f $(CLEAN)
