@@ -237,11 +237,13 @@ start_protected_mode:
                               ; right above the boot sector.
         mov     esp, ebp
 
+        call    vgaclear
+
         mov     esi, bit32pm_msg
         call    vgaprint
         jmp     $
 
-; Prints a string to the VGA textmode buffer.
+; Prints a string to the VGA buffer.
 ; Parameters:
 ;       esi: string
 vgaprint:
@@ -259,4 +261,23 @@ vgaprint:
         popa
         ret
 
+; Clears the VGA buffer.
+vgaclear:
+        pusha
+        mov   ebx, VGABUFFER
+.loop:
+        mov   [ebx], WORD 0x00
+        add   ebx, 0x02
+        mov   ecx, ebx
+        sub   ecx, VGABUFFER
+        cmp   ecx, VGABUFFER_HEIGHT * VGABUFFER_WIDTH
+        je    .end   
+        jmp   .loop
+.end:
+        popa
+        ret
+
+VGABUFFER        equ 0x0b8000
+VGABUFFER_HEIGHT equ 25
+VGABUFFER_WIDTH  equ 80
 bit32pm_msg: db "Landed in 32-bit protected mode.", 0x00
